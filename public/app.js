@@ -1,5 +1,5 @@
 // ============================================================================
-// RentalPro Desktop - Frontend Application
+// H-Rooms Desktop - Frontend Application
 // รองรับทั้ง บ้านเช่าเป็นหลัง และ ห้องเช่า/อพาร์ตเมนต์ + ใบแจ้งหนี้/ใบเสร็จ ขนาด A5
 // ============================================================================
 
@@ -140,7 +140,7 @@ function showToast(msg, type = 'success') {
 
 function updateGlobalUI() {
   const s = appState.settings || {};
-  document.getElementById('sidebar-biz-name').textContent = s.businessName || 'RentalPro Desktop';
+  document.getElementById('sidebar-biz-name').textContent = s.businessName || 'H-Rooms';
   const logoEl = document.getElementById('sidebar-brand-logo');
   if (logoEl) {
     if (s.logoDataUrl) {
@@ -2696,7 +2696,7 @@ function exportMeterSheetExcel() {
   // Sheet 1: Combined sheet with crisp framed building sections
   let combinedRowsXml = `
     <Row ss:Height="28">
-      <Cell ss:MergeAcross="8" ss:StyleID="Title"><Data ss:Type="String">ใบจดมิเตอร์น้ำ-ไฟ ประจำเดือน ${xmlEscape(monthLabel)} — ${xmlEscape(s.businessName || 'RentalPro')} (ทั้งหมด ${items.length} ยูนิต)</Data></Cell>
+      <Cell ss:MergeAcross="8" ss:StyleID="Title"><Data ss:Type="String">ใบจดมิเตอร์น้ำ-ไฟ ประจำเดือน ${xmlEscape(monthLabel)} — ${xmlEscape(s.businessName || 'H-Rooms')} (ทั้งหมด ${items.length} ยูนิต)</Data></Cell>
     </Row>
     <Row ss:Height="20">
       <Cell ss:MergeAcross="8" ss:StyleID="SubTitle"><Data ss:Type="String">คำแนะนำ: กรอกเลขมิเตอร์ใหม่ลงในช่อง "น้ำครั้งนี้" และ "ไฟครั้งนี้" (ห้ามแก้เลขห้อง) | สามารถเลือกแท็บด้านล่างเพื่อพิมพ์แยกทีละตึกได้</Data></Cell>
@@ -2741,7 +2741,7 @@ function exportMeterSheetExcel() {
       <Cell ss:MergeAcross="8" ss:StyleID="Title"><Data ss:Type="String">ใบจดมิเตอร์น้ำ-ไฟ: ${xmlEscape(zName)} (${zList.length} ห้อง) — เดือน ${xmlEscape(monthLabel)}</Data></Cell>
     </Row>
     <Row ss:Height="20">
-      <Cell ss:MergeAcross="8" ss:StyleID="SubTitle"><Data ss:Type="String">${xmlEscape(s.businessName || 'RentalPro')} | ผู้จดมิเตอร์: ________________________   วันที่จด: ____ / ____ / ________</Data></Cell>
+      <Cell ss:MergeAcross="8" ss:StyleID="SubTitle"><Data ss:Type="String">${xmlEscape(s.businessName || 'H-Rooms')} | ผู้จดมิเตอร์: ________________________   วันที่จด: ____ / ____ / ________</Data></Cell>
     </Row>
     ${tableHeaderRow}
     ${buildDataRowsXml(zList, true)}`;
@@ -2922,7 +2922,7 @@ function printMeterSheetA4() {
   <div class="header">
     <div>
       <h1>ใบจดมิเตอร์น้ำประปา - ไฟฟ้า ประจำเดือน ${escapeHtml(monthLabel)}</h1>
-      <div class="sub">${escapeHtml(s.businessName || 'RentalPro')} (${zoneOrder.length} อาคาร • ทั้งหมด ${items.length} ยูนิต)</div>
+      <div class="sub">${escapeHtml(s.businessName || 'H-Rooms')} (${zoneOrder.length} อาคาร • ทั้งหมด ${items.length} ยูนิต)</div>
     </div>
     <div class="meta">
       <div>ผู้จดมิเตอร์: ________________________</div>
@@ -5409,7 +5409,7 @@ function exportMonthlyExcel(billingMonth = selectedBillingMonth) {
   // Build Sheet 1: สรุปรายอาคาร (Building Summary)
   let sheet1Rows = `
     <Row ss:Height="26">
-      <Cell ss:MergeAcross="10" ss:StyleID="Title"><Data ss:Type="String">รายงานสรุปยอดประจำเดือน ${xmlEscape(monthLabel)} - ${xmlEscape(s.businessName || 'RentalPro')}</Data></Cell>
+      <Cell ss:MergeAcross="10" ss:StyleID="Title"><Data ss:Type="String">รายงานสรุปยอดประจำเดือน ${xmlEscape(monthLabel)} - ${xmlEscape(s.businessName || 'H-Rooms')}</Data></Cell>
     </Row>
     <Row ss:Height="22">
       <Cell ss:StyleID="Header"><Data ss:Type="String">อาคาร / โซน</Data></Cell>
