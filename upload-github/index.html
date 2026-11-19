@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RentalPro - โปรแกรมบริหารบ้านเช่าและห้องเช่า/อพาร์ตเมนต์ (Offline Desktop)</title>
+  <link rel="icon" type="image/x-icon" href="/icon.ico" />
+  <link rel="shortcut icon" type="image/x-icon" href="/icon.ico" />
+  <link rel="stylesheet" href="/styles.css" />
+  <style id="dynamic-print-page-style">
+    @page {
+      size: 148mm 210mm;
+      margin: 0mm;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-logo" id="sidebar-brand-logo">H</div>
+        <div>
+          <div class="brand-title" id="sidebar-biz-name">RentalPro Desktop</div>
+          <div class="brand-subtitle">ระบบบ้านเช่า &amp; ห้องเช่า/อพาร์ตเมนต์</div>
+        </div>
+      </div>
+
+      <nav class="nav-menu">
+        <div class="nav-section-label">เมนูหลัก</div>
+        <button class="nav-btn active" data-tab="dashboard" onclick="switchTab('dashboard')">
+          <span class="nav-icon">📊</span>
+          <span>ภาพรวม &amp; ผังบ้าน/ห้อง</span>
+        </button>
+        <button class="nav-btn" data-tab="units" onclick="switchTab('units')">
+          <span class="nav-icon">🏘️</span>
+          <span>จัดการบ้านเช่า &amp; ห้องเช่า</span>
+          <span class="nav-badge" id="badge-units-count">0</span>
+        </button>
+        <button class="nav-btn" data-tab="tenants" onclick="switchTab('tenants')">
+          <span class="nav-icon">👥</span>
+          <span>ผู้เช่า &amp; สัญญาเช่า</span>
+          <span class="nav-badge" id="badge-tenants-count">0</span>
+        </button>
+
+        <div class="nav-section-label">ระบบบิล &amp; การเงิน</div>
+        <button class="nav-btn" data-tab="meter" onclick="switchTab('meter')">
+          <span class="nav-icon">⚡</span>
+          <span>จดมิเตอร์ &amp; คำนวณบิล</span>
+        </button>
+        <button class="nav-btn" data-tab="invoices" onclick="switchTab('invoices')">
+          <span class="nav-icon">🧾</span>
+          <span>ใบแจ้งหนี้ / ใบเสร็จ (A5)</span>
+          <span class="nav-badge" id="badge-unpaid-count">0</span>
+        </button>
+        <button class="nav-btn" data-tab="accounting" onclick="switchTab('accounting')">
+          <span class="nav-icon">📊</span>
+          <span>สรุปรายเดือน &amp; บัญชี</span>
+        </button>
+
+        <div class="nav-section-label">ระบบ &amp; ข้อมูล</div>
+        <button class="nav-btn" data-tab="settings" onclick="switchTab('settings')">
+          <span class="nav-icon">⚙️</span>
+          <span>ตั้งค่า &amp; อัปเดตโปรแกรม</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="offline-pill">● ทำงานแบบ Offline 100%</div>
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+          <span id="app-version-label" style="font-weight:700; color:#e2e8f0;">เวอร์ชัน v1.0.0</span>
+          <button class="btn btn-sm" style="background:rgba(255,255,255,0.1); color:#fff; padding:2px 8px; font-size:11px;" onclick="checkForUpdatesManual()">🔄 เช็คอัปเดต</button>
+        </div>
+        <div id="storage-status-text">บันทึกข้อมูลลงเครื่องอัตโนมัติ</div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="main-area">
+      <!-- Auto-Update Notification Banner (Shows when an update is available) -->
+      <div id="update-notification-banner" style="display:none; background:linear-gradient(90deg, #1e3a8a, #2563eb); color:#ffffff; padding:12px 26px; align-items:center; justify-content:space-between; gap:16px; box-shadow:0 4px 12px rgba(37,99,235,0.25); z-index:30;">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span style="font-size:24px;">🎉</span>
+          <div>
+            <div style="font-weight:800; font-size:14.5px;" id="update-banner-title">มีอัปเดตโปรแกรมเวอร์ชันใหม่พร้อมติดตั้ง!</div>
+            <div style="font-size:12.5px; color:#dbeafe;" id="update-banner-desc">ข้อมูลบ้านเช่า ห้องเช่า และใบแจ้งหนี้ทั้งหมดในเครื่องจะถูกเก็บรักษาไว้ปลอดภัย 100%</div>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px; flex-shrink:0;">
+          <button class="btn btn-success" id="update-banner-action-btn" onclick="performUpdateAndRestart()" style="font-weight:800; padding:8px 16px; box-shadow:0 2px 8px rgba(0,0,0,0.2);">
+            🔄 อัปเดตและรีสตาร์ทโปรแกรมเดี๋ยวนี้
+          </button>
+          <button class="btn btn-sm" style="background:rgba(255,255,255,0.15); color:#fff;" onclick="dismissUpdateBanner()">ไว้ทีหลัง</button>
+        </div>
+      </div>
+
+      <header class="topbar">
+        <div class="topbar-left">
+          <h1 id="page-title">ภาพรวมกิจการ &amp; ผังบ้านเช่า / ห้องเช่า</h1>
+          <p id="page-subtitle">บริหารจัดการทั้งบ้านเช่าเป็นหลัง และห้องเช่า/อพาร์ตเมนต์ พร้อมออกใบแจ้งหนี้ขนาด A5</p>
+        </div>
+        <div class="topbar-actions">
+          <div class="category-tabs" id="global-category-filter">
+            <button class="cat-tab active" data-cat="all" onclick="setCategoryFilter('all')">
+              📋 ทั้งหมด (<span id="count-all">0</span>)
+            </button>
+            <button class="cat-tab" data-cat="house" onclick="setCategoryFilter('house')">
+              🏠 บ้านเช่าเป็นหลัง (<span id="count-house">0</span>)
+            </button>
+            <button class="cat-tab" data-cat="room" onclick="setCategoryFilter('room')">
+              🏢 ห้องเช่า/อพาร์ตเมนต์ (<span id="count-room">0</span>)
+            </button>
+          </div>
+          <button class="btn btn-outline" onclick="openBuildingModal()">🏢 + เพิ่มตึกใหม่</button>
+          <button class="btn btn-primary" onclick="openUnitModal()">+ เพิ่มห้อง / บ้านเช่า</button>
+        </div>
+      </header>
+
+      <main class="content-container" id="main-view"></main>
+    </div>
+  </div>
+
+  <!-- Generic Form Modal -->
+  <div class="modal-backdrop hidden" id="app-modal">
+    <div class="modal-box" id="app-modal-box">
+      <div class="modal-header">
+        <h3 id="modal-title">จัดการข้อมูล</h3>
+        <button class="btn btn-sm btn-outline" onclick="closeModal()">✕ ปิด</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+      <div class="modal-footer" id="modal-footer"></div>
+    </div>
+  </div>
+
+  <!-- Dedicated Print Mount for A5 Invoices / Receipts / Contracts -->
+  <div id="print-mount"></div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
