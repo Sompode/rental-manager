@@ -15,7 +15,11 @@ let appState = {
 let currentTab = 'dashboard';
 let categoryFilter = 'all'; // 'all' | 'house' | 'room'
 let selectedZoneFilter = 'all'; // 'all' | zoneName
-let selectedBillingMonth = new Date().toISOString().slice(0, 7);
+function getCurrentLocalMonthStr() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+let selectedBillingMonth = getCurrentLocalMonthStr();
 let invoiceStatusFilter = 'all';
 let meterProgressFilter = 'all'; // 'all' | 'pending' | 'done'
 let hasUnsavedMeterChanges = false;
@@ -96,15 +100,6 @@ function setUiZoom(val, silent = false) {
 async function fetchState() {
   const res = await fetch('/api/state');
   appState = await res.json();
-  if (Array.isArray(appState.invoices) && appState.invoices.length > 0) {
-    const hasCurrentMonth = appState.invoices.some(i => i.billingMonth === selectedBillingMonth);
-    if (!hasCurrentMonth) {
-      const months = appState.invoices.map(i => i.billingMonth).filter(Boolean).sort();
-      if (months.length > 0) {
-        selectedBillingMonth = months[months.length - 1];
-      }
-    }
-  }
   updateGlobalUI();
   renderCurrentTab();
 }
