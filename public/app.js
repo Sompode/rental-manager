@@ -6100,8 +6100,11 @@ async function saveMaintenance(existingId) {
   const reportedDate = document.getElementById('m-date').value;
   const status = document.getElementById('m-status').value;
 
+  const oldMaint = existingId ? (appState.maintenances || []).find(m => m.id === existingId) : null;
+  const maintId = existingId || `maint-${Date.now()}`;
+
   await apiPost('/api/maintenances', {
-    id: existingId || undefined,
+    id: maintId,
     unitId,
     unitCode: u.code || '',
     unitCategory: u.category || 'room',
@@ -6112,8 +6115,16 @@ async function saveMaintenance(existingId) {
     status
   });
 
-  if (!existingId && cost > 0) {
+  // Sync linked expense transaction in accounting (create, update, or delete if cost <= 0)
+  const linkedTx = (appState.transactions || []).find(t =>
+    t.maintenanceId === maintId ||
+    (oldMaint && t.category === 'ค่าซ่อมบำรุง' && t.type === 'expense' && t.title === `ค่าซ่อม: ${oldMaint.title} (${oldMaint.unitCode || ''})` && t.date === oldMaint.reportedDate)
+  );
+
+  if (cost > 0) {
     await apiPost('/api/transactions', {
+      id: linkedTx ? linkedTx.id : undefined,
+      maintenanceId: maintId,
       date: reportedDate,
       type: 'expense',
       category: 'ค่าซ่อมบำรุง',
@@ -6122,17 +6133,31 @@ async function saveMaintenance(existingId) {
       unitId,
       unitCode: u.code || ''
     });
+  } else if (linkedTx) {
+    await apiPost('/api/transactions/delete', { id: linkedTx.id });
   }
 
   closeModal();
+  await fetchState();
   renderCurrentTab();
-  showToast('บันทึกรายการแจ้งซ่อมเรียบร้อยแล้ว');
+  showToast('บันทึกรายการแจ้งซ่อมและอัปเดตบัญชีรายจ่ายเรียบร้อยแล้ว');
 }
 
 async function deleteMaint(id) {
-  if (!confirm('ลบรายการแจ้งซ่อมนี้?')) return;
+  if (!confirm('ยืนยันลบรายการแจ้งซ่อมนี้? (ระบบจะลบรายจ่ายค่าซ่อมที่ผูกกันในบัญชีออกให้ด้วย)')) return;
+  const m = (appState.maintenances || []).find(x => x.id === id);
+  const linkedTxs = (appState.transactions || []).filter(t =>
+    t.maintenanceId === id ||
+    (m && t.category === 'ค่าซ่อมบำรุง' && t.type === 'expense' && t.title === `ค่าซ่อม: ${m.title} (${m.unitCode || ''})` && t.date === m.reportedDate && Number(t.amount) === Number(m.cost))
+  );
+
   await apiPost('/api/maintenances/delete', { id });
+  for (const tx of linkedTxs) {
+    await apiPost('/api/transactions/delete', { id: tx.id });
+  }
+  await fetchState();
   renderCurrentTab();
+  showToast('ลบรายการแจ้งซ่อมและอัปเดตยอดรายจ่ายเรียบร้อยแล้ว');
 }
 
 function openTransactionModal() {
@@ -6668,6 +6693,9 @@ async function checkForUpdatesManual() {
           showToast(`คุณกำลังใช้งานเวอร์ชันล่าสุดแล้ว (v${data.currentVersion})`);
           return;
         }
+      } else if (data && data.error) {
+        showToast(`ตรวจสอบอัปเดตไม่สำเร็จ: ${data.error}`, 'error');
+        return;
       }
     } catch (err) {
       showToast(`ไม่สามารถเชื่อมต่อลิงก์อัปเดตได้: ${err.message}`, 'error');
