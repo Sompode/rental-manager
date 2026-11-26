@@ -15,9 +15,25 @@ let appState = {
 let currentTab = 'dashboard';
 let categoryFilter = 'all'; // 'all' | 'house' | 'room'
 let selectedZoneFilter = 'all'; // 'all' | zoneName
+function getLocalDateStr(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 function getCurrentLocalMonthStr() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  return getLocalDateStr().slice(0, 7);
+}
+
+function escapeJsArg(str) {
+  return escapeHtml(
+    String(str ?? '')
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\\'")
+      .replace(/\r/g, '')
+      .replace(/\n/g, '\\n')
+  );
 }
 let selectedBillingMonth = getCurrentLocalMonthStr();
 let invoiceStatusFilter = 'all';
@@ -97,9 +113,73 @@ function setUiZoom(val, silent = false) {
   }
 }
 
+function getLanAuthHeaders(extra = {}) {
+  const headers = { ...extra };
+  try {
+    const pin = sessionStorage.getItem('hrooms_lan_pin');
+    if (pin) headers['X-LAN-PIN'] = pin;
+  } catch (e) {}
+  return headers;
+}
+
+function openLanPinPromptModal(errorMsg = '') {
+  openModal(
+    '🔒 ยืนยันรหัส PIN สำหรับเชื่อมต่อผ่าน Wi-Fi (LAN)',
+    `
+      <div style="font-size:13.5px; color:#334155; margin-bottom:12px;">
+        เครื่องหลักได้ตั้งรหัส PIN ป้องกันการเข้าถึงผ่าน Wi-Fi กรุณากรอกรหัส PIN เพื่อใช้งานระบบ
+      </div>
+      ${errorMsg ? `<div style="background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; border-radius:8px; padding:8px 12px; margin-bottom:10px; font-size:13px; font-weight:700;">⚠️ ${escapeHtml(errorMsg)}</div>` : ''}
+      <div class="form-group">
+        <label>รหัส PIN</label>
+        <input type="password" id="lan-pin-unlock-input" class="form-control" placeholder="กรอกรหัส PIN" autocomplete="off" onkeydown="if(event.key==='Enter'){submitLanPinUnlock();}" />
+      </div>
+    `,
+    `<button class="btn btn-primary" onclick="submitLanPinUnlock()">🔓 ยืนยันรหัส PIN</button>`
+  );
+  setTimeout(() => {
+    const inp = document.getElementById('lan-pin-unlock-input');
+    if (inp) inp.focus();
+  }, 50);
+}
+
+async function submitLanPinUnlock() {
+  const inp = document.getElementById('lan-pin-unlock-input');
+  const pin = (inp ? inp.value : '').trim();
+  if (!pin) {
+    openLanPinPromptModal('กรุณากรอกรหัส PIN');
+    return;
+  }
+  try {
+    const res = await fetch('/api/lan-auth/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      openLanPinPromptModal(data.error || 'รหัส PIN ไม่ถูกต้อง');
+      return;
+    }
+    try {
+      sessionStorage.setItem('hrooms_lan_pin', pin);
+    } catch (e) {}
+    closeModal();
+    await fetchState();
+    showToast('🔓 ยืนยันรหัส PIN สำเร็จ');
+  } catch (e) {
+    openLanPinPromptModal('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
+  }
+}
+
 async function fetchState() {
-  const res = await fetch('/api/state');
-  appState = await res.json();
+  const res = await fetch('/api/state', { headers: getLanAuthHeaders() });
+  const data = await res.json();
+  if (res.status === 401 && data.requirePin) {
+    openLanPinPromptModal(data.error || '');
+    return;
+  }
+  appState = data;
   updateGlobalUI();
   renderCurrentTab();
 }
@@ -107,10 +187,14 @@ async function fetchState() {
 async function apiPost(url, payload) {
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getLanAuthHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(payload || {})
   });
   const data = await res.json();
+  if (res.status === 401 && data.requirePin) {
+    openLanPinPromptModal(data.error || '');
+    throw new Error(data.error || 'กรุณากรอกรหัส PIN');
+  }
   if (!res.ok || data.ok === false) {
     throw new Error(data.error || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
   }
@@ -596,7 +680,7 @@ function renderDashboard(container) {
   }, 0);
 
   // Expiring lease alert (within 30 days or already expired)
-  const todayMs = new Date(new Date().toISOString().slice(0, 10)).getTime();
+  const todayMs = new Date(getLocalDateStr()).getTime();
   const expiringLeases = (appState.tenants || [])
     .filter(t => t.status === 'active' && t.contractEndDate)
     .map(t => {
@@ -1798,7 +1882,7 @@ async function confirmDeleteBuilding(zoneName) {
     // Also notify /api/buildings/delete if supported by server
     fetch('/api/buildings/delete', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getLanAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ name: zoneName })
     }).catch(() => {});
 
@@ -1974,7 +2058,7 @@ function openTenantModal(tenantId = null, preselectUnitId = null) {
   const units = appState.units || [];
   const chosenUnitId = existing ? existing.unitId : (preselectUnitId || (units[0] ? units[0].id : ''));
   const chosenUnit = units.find(u => u.id === chosenUnitId) || {};
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalDateStr();
   const nextYear = `${parseInt(today.slice(0, 4), 10) + 1}${today.slice(4)}`;
 
   const t = existing || {
@@ -2195,7 +2279,7 @@ function openMoveOutModal(tenantId) {
   const t = (appState.tenants || []).find(x => x.id === tenantId);
   if (!t) return;
   const u = (appState.units || []).find(x => x.id === t.unitId) || {};
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalDateStr();
 
   showModal({
     title: `แจ้งย้ายออก & คำนวณคืนเงินประกัน: ${t.fullName} (${u.code || ''})`,
@@ -2547,7 +2631,7 @@ function clearCurrentMonthMeterInputs() {
 }
 
 function getNextBillingMonthStr(ym) {
-  const parts = String(ym || new Date().toISOString().slice(0, 7)).split('-').map(n => parseInt(n, 10));
+  const parts = String(ym || getCurrentLocalMonthStr()).split('-').map(n => parseInt(n, 10));
   let y = parts[0] || new Date().getFullYear();
   let m = (parts[1] || 1) + 1;
   if (m > 12) {
@@ -3957,7 +4041,7 @@ async function saveQuickBill(unitId, existingId, wRate, eRate) {
   };
 
   if (payload.status === 'paid' && !payload.paidDate) {
-    payload.paidDate = new Date().toISOString().slice(0, 10);
+    payload.paidDate = getLocalDateStr();
     payload.paidAmount = payload.totalAmount;
   }
 
@@ -3976,7 +4060,7 @@ async function saveQuickBill(unitId, existingId, wRate, eRate) {
 function openPaymentModal(invoiceId) {
   const inv = (appState.invoices || []).find(i => i.id === invoiceId);
   if (!inv) return;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalDateStr();
   const existingLateFee = Number(inv.lateFee || 0);
   const baseWithoutLate = Math.max(0, Number(inv.totalAmount || 0) - existingLateFee);
   const alreadyPaid = inv.status === 'partial' ? Number(inv.paidAmount || 0) : 0;
@@ -4871,7 +4955,7 @@ function buildDefaultContractInnerHtml(t, u, s, paperSize = 'a4') {
   const placeText = s.contractPlace || s.businessName || 'หอพัก "หาญยิ่ง"';
   const landlordText = s.contractLandlordName || s.bankAccountName || s.businessName || 'ผู้ให้เช่า';
   const witnessText = s.contractWitnessName || '.................................................';
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalDateStr();
 
   const startDateStr = t.contractStartDate ? formatDateThai(t.contractStartDate) : formatDateThai(today);
   const endDateStr = t.contractEndDate ? formatDateThai(t.contractEndDate) : '......................................';
@@ -5010,7 +5094,7 @@ function openContractPreviewModal(tenantId = null, unitId = null, forcedPaperSiz
     phone: '',
     permanentAddress: '',
     occupantCount: 1,
-    contractStartDate: new Date().toISOString().slice(0, 10),
+    contractStartDate: getLocalDateStr(),
     contractEndDate: '',
     agreedRent: u.baseRent || 3000,
     depositAmount: u.defaultDeposit || 4500,
@@ -6029,7 +6113,7 @@ function renderAccountingTab(container) {
 function openMaintenanceModal(id = null) {
   const existing = id ? (appState.maintenances || []).find(m => m.id === id) : null;
   const units = appState.units || [];
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalDateStr();
   const m = existing || {
     id: '',
     unitId: units[0]?.id || '',
@@ -6156,7 +6240,7 @@ async function deleteMaint(id) {
 }
 
 function openTransactionModal() {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalDateStr();
   showModal({
     title: 'เพิ่มรายการรายรับ / รายจ่าย',
     bodyHtml: `
@@ -6345,8 +6429,8 @@ function renderSettingsTab(container) {
           </div>
 
           <div class="form-group full-width">
-            <label>🌐 ลิงก์เซิร์ฟเวอร์อัปเดต / GitHub Raw URL สำหรับอัปเดตโปรแกรมผ่านอินเทอร์เน็ต (เช่น https://raw.githubusercontent.com/ชื่อบัญชี/ชื่อโปรเจกต์/main)</label>
-            <input type="text" class="form-control" name="updateUrl" id="settings-update-url" value="${escapeHtml(s.updateUrl || '')}" placeholder="https://raw.githubusercontent.com/YOUR_USERNAME/rental-manager/main" />
+            <label>🌐 ลิงก์ GitHub สำหรับอัปเดตโปรแกรมอัตโนมัติ (ใส่ได้ทั้งลิงก์ GitHub ปกติ, Releases หรือ Raw URL)</label>
+            <input type="text" class="form-control" name="updateUrl" id="settings-update-url" value="${escapeHtml(s.updateUrl || 'https://github.com/Sompode/rental-manager')}" placeholder="https://github.com/Sompode/rental-manager" />
           </div>
 
           <div class="form-group full-width" style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:14px;">
@@ -6364,7 +6448,7 @@ function renderSettingsTab(container) {
               </div>
               <div style="grid-column: 1 / -1;">
                 <label>โฟลเดอร์สำรองสำเนาเพิ่มเติม (เช่น โฟลเดอร์ OneDrive / Google Drive / แฟลชไดรฟ์ — เว้นว่างได้)</label>
-                <input type="text" class="form-control" name="autoBackupDir" value="${escapeHtml(s.autoBackupDir || '')}" placeholder="เช่น C:\\Users\\ชื่อผู้ใช้\\OneDrive\\RentalPro-Backups หรือ D:\\Backup" />
+                <input type="text" class="form-control" name="autoBackupDir" value="${escapeHtml(s.autoBackupDir || '')}" placeholder="เช่น C:\\Users\\ชื่อผู้ใช้\\OneDrive\\H-Rooms-Backups หรือ D:\\Backup" />
               </div>
             </div>
           </div>
@@ -6389,11 +6473,19 @@ function renderSettingsTab(container) {
             ${appState.networkInfo.lanUrls.map(url => `
               <div style="display:flex; align-items:center; justify-content:space-between; background:${s.enableLanAccess ? '#eff6ff' : '#f8fafc'}; border:1px solid ${s.enableLanAccess ? '#93c5fd' : '#e2e8f0'}; border-radius:8px; padding:8px 12px; gap:10px; flex-wrap:wrap;">
                 <code style="font-size:14.5px; font-weight:800; color:${s.enableLanAccess ? '#1d4ed8' : '#64748b'};">${escapeHtml(url)}</code>
-                <button class="btn btn-sm btn-primary" onclick="copyLanUrl('${escapeHtml(url)}')">📋 คัดลอกลิงก์</button>
+                <button class="btn btn-sm btn-primary" onclick="copyLanUrl('${escapeJsArg(url)}')">📋 คัดลอกลิงก์</button>
               </div>
             `).join('')}
           </div>
         ` : `<div style="font-size:12.5px; color:#64748b;">ยังไม่พบ IP ของเครือข่าย Wi-Fi (กรุณาตรวจสอบว่าเชื่อมต่อ Wi-Fi แล้ว)</div>`}
+        ${appState.networkInfo?.isLocal !== false ? `
+          <div style="margin-top:12px; padding:10px 12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <div style="font-size:12.5px; font-weight:700; color:#334155;">🔐 รหัส PIN ป้องกันเครื่องอื่นใน Wi-Fi (เว้นว่าง = ไม่ตั้งรหัส):</div>
+            <input type="password" id="settings-lan-pin" class="form-control" style="width:150px; padding:5px 10px; font-size:13px;" value="${escapeHtml(s.lanPin || '')}" placeholder="เช่น 1234" autocomplete="off" />
+            <button type="button" class="btn btn-sm btn-primary" onclick="saveLanPin()">💾 บันทึกรหัส PIN</button>
+            ${s.lanPin ? `<span style="font-size:12px; color:#15803d; font-weight:700;">● เปิดใช้งานรหัส PIN อยู่</span>` : `<span style="font-size:12px; color:#64748b;">ยังไม่ตั้งรหัส PIN</span>`}
+          </div>
+        ` : ''}
         <div style="margin-top:8px; font-size:12px; color:#64748b;">
           💡 <em>หมายเหตุ: หากเปิดครั้งแรกบน Windows แล้วมีหน้าต่าง Windows Defender Firewall เด้งขึ้นมา ให้ติ๊ก Private networks แล้วกด <strong>Allow access</strong></em>
         </div>
@@ -6451,7 +6543,7 @@ async function loadAutoBackupList() {
   const el = document.getElementById('auto-backup-list-container');
   if (!el) return;
   try {
-    const res = await fetch('/api/backup/list');
+    const res = await fetch('/api/backup/list', { headers: getLanAuthHeaders() });
     const data = await res.json();
     const list = data.backups || [];
     if (list.length === 0) {
@@ -6479,7 +6571,7 @@ async function loadAutoBackupList() {
 
 async function runAutoBackupNow() {
   try {
-    const res = await fetch('/api/backup/run-auto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const res = await fetch('/api/backup/run-auto', { method: 'POST', headers: getLanAuthHeaders({ 'Content-Type': 'application/json' }), body: '{}' });
     const data = await res.json();
     if (data.ok) {
       let msg = '🛡️ สำรองข้อมูลอัตโนมัติเรียบร้อยแล้ว';
@@ -6510,15 +6602,41 @@ async function toggleLanAccess(enabled) {
   showToast(enabled ? '🌐 เปิดโหมดแชร์ผ่าน Wi-Fi (LAN) แล้ว เครื่องอื่นในวง Wi-Fi เดียวกันเข้าใช้งานได้ทันที' : '🔒 ปิดโหมดแชร์ผ่าน Wi-Fi (LAN) แล้ว');
 }
 
+async function saveLanPin() {
+  const inp = document.getElementById('settings-lan-pin');
+  const lanPin = (inp ? inp.value : '').trim();
+  await apiPost('/api/settings', { lanPin });
+  await fetchState();
+  renderCurrentTab();
+  showToast(lanPin ? '🔐 บันทึกรหัส PIN สำหรับโหมด Wi-Fi (LAN) เรียบร้อยแล้ว' : '🔓 ยกเลิกรหัส PIN โหมด Wi-Fi (LAN) แล้ว');
+}
+
 function copyLanUrl(url) {
+  const fallbackCopy = () => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = url;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      if (ok) {
+        showToast(`📋 คัดลอกลิงก์ ${url} แล้ว`);
+        return;
+      }
+    } catch (e) {}
+    showToast(`กรุณาคัดลอกลิงก์นี้ด้วยตนเอง: ${url}`, 'error');
+  };
+
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(url).then(() => {
       showToast(`📋 คัดลอกลิงก์ ${url} แล้ว`);
-    }).catch(() => {
-      prompt('คัดลอกลิงก์นี้ไปเปิดบน MacBook / มือถือ:', url);
-    });
+    }).catch(fallbackCopy);
   } else {
-    prompt('คัดลอกลิงก์นี้ไปเปิดบน MacBook / มือถือ:', url);
+    fallbackCopy();
   }
 }
 
@@ -6640,12 +6758,12 @@ function handleNativeUpdaterEvent(evt) {
 }
 
 async function checkOtaUpdateSilent() {
-  const updateUrl = (appState.settings?.updateUrl || '').trim();
+  const updateUrl = (appState.settings?.updateUrl || 'https://github.com/Sompode/rental-manager').trim();
   if (!updateUrl) return;
   try {
     const res = await fetch('/api/update/check', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getLanAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ updateUrl })
     });
     const data = await res.json();
@@ -6653,7 +6771,8 @@ async function checkOtaUpdateSilent() {
       showUpdateBanner({
         version: data.latestVersion,
         releaseNotes: data.releaseNotes,
-        mode: 'ota'
+        mode: data.mode || 'ota',
+        downloadUrl: data.downloadUrl || ''
       });
     }
   } catch (e) {
@@ -6664,14 +6783,14 @@ async function checkOtaUpdateSilent() {
 async function checkForUpdatesManual() {
   showToast('กำลังตรวจสอบเวอร์ชันใหม่ผ่านอินเทอร์เน็ต...');
   const updateUrlInput = document.getElementById('settings-update-url');
-  const updateUrl = (updateUrlInput ? updateUrlInput.value : (appState.settings?.updateUrl || '')).trim();
+  const updateUrl = (updateUrlInput ? updateUrlInput.value : (appState.settings?.updateUrl || 'https://github.com/Sompode/rental-manager')).trim();
 
-  // 1. Check OTA URL if configured
+  // 1. Check OTA / GitHub Releases URL
   if (updateUrl) {
     try {
       const res = await fetch('/api/update/check', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getLanAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ updateUrl })
       });
       const data = await res.json();
@@ -6680,7 +6799,8 @@ async function checkForUpdatesManual() {
           showUpdateBanner({
             version: data.latestVersion,
             releaseNotes: data.releaseNotes,
-            mode: 'ota'
+            mode: data.mode || 'ota',
+            downloadUrl: data.downloadUrl || ''
           });
           showToast(`พบเวอร์ชันใหม่ v${data.latestVersion}! กดปุ่มแถบด้านบนเพื่ออัปเดตได้เลย`);
           return;
@@ -6729,8 +6849,17 @@ async function performUpdateAndRestart() {
   }
 
   try {
+    if (pendingUpdateState.mode === 'release' && pendingUpdateState.downloadUrl) {
+      window.open(pendingUpdateState.downloadUrl, '_blank');
+      showToast('⬇️ กำลังเปิดลิงก์ดาวน์โหลดตัวติดตั้งเวอร์ชันใหม่จาก GitHub...');
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.textContent = '🔄 อัปเดตและรีสตาร์ทโปรแกรมเดี๋ยวนี้';
+      }
+      return;
+    }
     if (pendingUpdateState.mode === 'ota') {
-      const updateUrl = (appState.settings?.updateUrl || '').trim();
+      const updateUrl = (appState.settings?.updateUrl || 'https://github.com/Sompode/rental-manager').trim();
       await apiPost('/api/update/download-ota', { updateUrl });
     }
     showToast('อัปเดตสำเร็จ กำลังรีสตาร์ทโปรแกรม...');
@@ -6760,12 +6889,12 @@ async function handleBackupExport() {
   }
 
   try {
-    const dateStr = new Date().toISOString().slice(0, 10);
-    const fileName = `RentalPro-Backup-${dateStr}.db`;
+    const dateStr = getLocalDateStr();
+    const fileName = `H-Rooms-Backup-${dateStr}.db`;
     let blobData = null;
 
     try {
-      const res = await fetch('/api/backup/export?t=' + Date.now());
+      const res = await fetch('/api/backup/export?t=' + Date.now(), { headers: getLanAuthHeaders() });
       if (res.ok) {
         const arrayBuf = await res.arrayBuffer();
         if (arrayBuf && arrayBuf.byteLength > 0) {
